@@ -1,0 +1,27 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# Lightweight YOLO11 Forecast model for time series
+# Reduced depth and width for faster training on small datasets
+
+# Parameters
+nc: 1
+scales:
+  n: [0.50, 0.25, 256]
+
+backbone:
+  # Simplified 3-stage backbone instead of 5
+  - [-1, 1, Conv, [32, 3, 2]]         # 0: stride 2, W=32 (from 63)
+  - [-1, 1, C3k2, [64, False, 0.25]]  # 1
+  - [-1, 1, Conv, [64, 3, 2]]         # 2: stride 4, W=16
+  - [-1, 1, C3k2, [128, False, 0.25]] # 3
+  - [-1, 1, Conv, [128, 3, 2]]        # 4: stride 8, W=8
+  - [-1, 1, C3k2, [128, True]]        # 5
+
+head:
+  # Simple FPN: P3 (5) -> P2 (3)
+  - [-1, 1, UpW, [2, "nearest"]]      # 6: W=16
+  - [[-1, 3], 1, Concat, [1]]         # 7: cat with layer 3
+  - [-1, 1, C3k2, [64, False]]        # 8: fused
+
+  # Forecast Head using P2 and P3
+  - [[8, 5], 1, Forecast, [36, null, 128, 0.3, "concat", 8]]
