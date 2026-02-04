@@ -40,6 +40,8 @@ class RevIN(nn.Module):
             return self._normalize(x)
         elif mode == 'denorm':
             return self._denormalize(x)
+        elif mode == 'denorm_delta':
+            return self._denormalize_delta(x)
         else:
             raise ValueError(f"Unknown mode: {mode}")
     
@@ -73,6 +75,17 @@ class RevIN(nn.Module):
         x = x + self.mean
         
         return x.squeeze(1)  # (batch, horizon)
+
+    def _denormalize_delta(self, x):
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+
+        if self.affine:
+            x = x - self.affine_bias.view(1, -1, 1)
+            x = x / (self.affine_weight.view(1, -1, 1) + self.eps)
+
+        x = x * self.stdev
+        return x.squeeze(1)
 
 
 class PatchTST_Embedding(nn.Module):

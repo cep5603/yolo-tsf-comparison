@@ -204,7 +204,7 @@ class YOLO11_TSF(nn.Module):
         )
 
     def forward(self, x):
-        last_val = x[:, :, -1] if self.use_skip else 0
+        last_val = x[:, :, -1:] if self.use_skip else 0
         
         # RevIN normalize
         if self.use_revin:
@@ -217,7 +217,7 @@ class YOLO11_TSF(nn.Module):
         
         # RevIN denormalize
         if self.use_revin:
-            out = self.revin(out, mode='denorm')
+            out = self.revin(out, mode='denorm_delta' if self.use_skip else 'denorm')
         
         # Skip connection (adds last value AFTER denorm)
         if self.use_skip:

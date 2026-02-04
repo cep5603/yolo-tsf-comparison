@@ -2,7 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from layers import RevIN, PatchTST_Embedding
+from layers import PatchTST_Embedding, RevIN
+
+"""
+This version includes STL decomposition bias
+"""
 
 class Conv1D(nn.Module):
     def __init__(self, c1, c2, k=3, s=1, p=None):
@@ -208,22 +212,91 @@ class MultiScaleForecastHead(nn.Module):
         fused = torch.cat([f3, f4, f5], dim=1)
         return self.fc(fused)
 
+class SeparateMultiScaleForecastHead(nn.Module):
+    def __init__(self, channels, horizon):
+        super().__init__()
+
+        # Per-scale feature refinement (NO temporal collapse)
+        self.p3_head = nn.Sequential(
+            Conv1D(channels[0], 64, 3),
+            Conv1D(64, 32, 1)
+        )
+
+        self.p4_head = nn.Sequential(
+            Conv1D(channels[1], 32, 1)
+        )
+
+        self.p5_head = nn.Sequential(
+            Conv1D(channels[2], 32, 1)
+        )
+
+        # Per-scale fc (NO temporal collapse)
+        self.p3_fc = nn.Sequential(
+            nn.LazyLinear(horizon),
+            nn.SiLU()
+        )
+
+        self.p4_fc = nn.Sequential(
+            nn.LazyLinear(horizon),
+            nn.SiLU()
+        )
+
+        self.p5_fc = nn.Sequential(
+            nn.LazyLinear(horizon),
+            nn.SiLU()
+        )
+
+
+    def forward(self, feats):
+        p3, p4, p5 = feats
+
+        f3 = self.p3_head(p3)   # (B, 32, T3)
+        f4 = self.p4_head(p4)   # (B, 32, T4)
+        f5 = self.p5_head(p5)   # (B, 32, T5)
+
+        # Preserve temporal structure: flatten time
+        f3 = f3.flatten(start_dim=1)
+        f4 = f4.flatten(start_dim=1)
+        f5 = f5.flatten(start_dim=1)
+
+        f3 = self.p3_fc(f3)
+        f4 = self.p4_fc(f4)
+        f5 = self.p5_fc(f5)
+
+        return f3, f4, f5
+
+class FusionSTL(nn.Module):
+    def __init__(self, horizon):
+        super().__init__()
+        self.fc = nn.Linear(3*horizon, horizon)
+
+    def forward(self, f3, f4, f5):
+        return self.fc(torch.cat((f3,f4,f5), dim=1))
+
 class YOLO11_TSF(nn.Module):
-    def __init__(self, horizon=10, use_skip=True, use_revin=True, seq_len=96, patch_len=16, patch_stride=8):
+    def __init__(
+        self,
+        horizon=10,
+        use_skip=True,
+        use_revin=True,
+        seq_len=96,
+        patch_len=16,
+        patch_stride=8,
+        return_components=False,
+    ):
         super().__init__()
         self.use_skip = use_skip
         self.use_revin = use_revin
-        
-        # RevIN for instance normalization
+        self.return_components = return_components
+
         if use_revin:
             self.revin = RevIN(num_features=1, affine=True)
-        
-        # PatchTST-style embedding with positional encoding
+
         self.patch = PatchTST_Embedding(
             seq_len=seq_len,
             patch_len=patch_len,
             stride=patch_stride,
-            d_model=32
+            d_model=32,
         )
 
         self.backbone = Backbone(
@@ -234,29 +307,138 @@ class YOLO11_TSF(nn.Module):
             width=[32, 64, 128, 256, 256]
         )
 
-        self.head = MultiScaleForecastHead(
+        self.head = SeparateMultiScaleForecastHead(
             channels=[128, 256, 256],
+            horizon=horizon,
+        )
+
+        self.fusion = FusionSTL(
             horizon=horizon
         )
 
-    def forward(self, x):
+    def forward(self, x, return_components=None):
+        if return_components is None:
+            return_components = self.return_components
+
         last_val = x[:, :, -1:] if self.use_skip else 0
-        
-        # RevIN normalize
+
         if self.use_revin:
-            x = self.revin(x, mode='norm')
-        
+            x = self.revin(x, mode="norm")
+
         z = self.patch(x)
         p3, p4, p5 = self.backbone(z)
         feats = self.neck(p3, p4, p5)
-        out = self.head(feats)
-        
-        # RevIN denormalize
+        hp3, hp4, hp5 = self.head(feats)
+        out = self.fusion(hp3, hp4, hp5)
+
         if self.use_revin:
-            out = self.revin(out, mode='denorm_delta' if self.use_skip else 'denorm')
-        
-        # Skip connection (adds last value AFTER denorm)
+            mode = "denorm_delta" if self.use_skip else "denorm"
+            out = self.revin(out, mode=mode)
+            hp3 = self.revin(hp3, mode=mode)
+            hp4 = self.revin(hp4, mode=mode)
+            hp5 = self.revin(hp5, mode=mode)
+
         if self.use_skip:
             out = out + last_val.squeeze(1)
-        
+
+        if return_components:
+            return out, hp3, hp4, hp5
+
         return out
+
+if __name__ == "__main__":
+    # Model training
+
+    import torch
+
+    def spectral_decompose(x, low_frac=0.05, mid_frac=0.2):
+        """
+        x: (T,) or (B, T)
+        """
+        X = torch.fft.rfft(x, dim=-1)
+        T = X.shape[-1]
+
+        low = X.clone()
+        mid = X.clone()
+        high = X.clone()
+
+        low[..., int(low_frac*T):] = 0
+        mid[..., :int(low_frac*T)] = 0
+        mid[..., int(mid_frac*T):] = 0
+        high[..., :int(mid_frac*T)] = 0
+
+        return (
+            torch.fft.irfft(low, dim=-1),
+            torch.fft.irfft(mid, dim=-1),
+            torch.fft.irfft(high, dim=-1),
+        )
+
+    import statsmodels.api as sm
+    import numpy as np
+    from statsmodels.tsa.seasonal import STL
+
+    data = sm.datasets.co2.load_pandas().data.fillna(method="bfill")
+    values = data["co2"].values[:2000]
+
+    batchdata = torch.tensor(values,dtype=torch.float32).view(50,40)
+    Train_data = batchdata[:40,:]
+    Test_data = batchdata[40:,:]
+
+    trend, seasonal, resid  = spectral_decompose(Train_data)
+
+    #lookback horizon of 30, and forecasting horizon of 10
+    X = Train_data[:,:30].view(40,1,30)
+    y = Train_data[:,30:].view(40,10)
+    y_t = trend[:40,30:].view(40,10)
+    y_s = seasonal[:40,30:].view(40,10)
+    y_r = resid[:40,30:].view(40,10)
+
+    model = YOLO11_TSF(
+        horizon=10,
+        use_skip=False,
+        use_revin=False,
+        seq_len=X.shape[-1],
+        patch_len=8,
+        patch_stride=4,
+    )
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=0.001)
+    loss_fn = nn.MSELoss()
+
+    for epoch in range(1000):
+        optimizer.zero_grad()
+        pred, pred_p3, pred_p4, pred_p5 = model(X, return_components=True)
+
+        loss = loss_fn(pred, y) + loss_fn(pred_p3, y_r) +  loss_fn(pred_p4, y_s) + 0.25*loss_fn(pred_p5, y_t)
+        loss.backward()
+        optimizer.step()
+
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch}, Loss {loss.item():.4f}")
+
+    model.eval()
+    X_test = Test_data[:,:30].view(10,1,30)
+    y_test = Test_data[:,30:].view(10,10)
+    y_pred = model(X_test)
+
+    print(f"Prediction: {y_pred}")
+    print(f"GroundTruth: {y_test}")
+
+    model.train()
+    for epoch in range(500):
+        optimizer.zero_grad()
+        pred, pred_p3, pred_p4, pred_p5 = model(X, return_components=True)
+
+        loss = loss_fn(pred, y) + loss_fn(pred_p3, y_r) +  loss_fn(pred_p4, y_s) + 0.25*loss_fn(pred_p5, y_t)
+        loss.backward()
+        optimizer.step()
+
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch}, Loss {loss.item():.4f}")
+
+    model.eval()
+    X_test = Test_data[:,:30].view(10,1,30)
+    y_test = Test_data[:,30:].view(10,10)
+    y_pred = model(X_test)
+    print(f"Prediction: {y_pred}")
+    print(f"GroundTruth: {y_test}")

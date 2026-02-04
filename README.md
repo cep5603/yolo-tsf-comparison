@@ -2,9 +2,7 @@
 
 In the `yolo_tsf` folder, run with:
 
-`python training_etth1.py --no-skip`
-
-- (add `--no-skip` since the skip connection may not work correctly with RevIN)
+`python training_etth1.py`
 
 You can adjust the hyperparameters or see other CLI flags at the top of `training_etth1.py`.
 
