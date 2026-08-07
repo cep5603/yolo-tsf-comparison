@@ -1,0 +1,32 @@
+{
+  "source": "training_main",
+  "dataset": "etth1",
+  "dataset_label": "ETTh1",
+  "eval_protocol": "patchtst",
+  "features": "M",
+  "window": 336,
+  "horizon": 96,
+  "epochs": 50,
+  "lr": 0.0001,
+  "batch_size": 64,
+  "use_skip": true,
+  "use_revin": true,
+  "patch_len": 16,
+  "patch_stride": 8,
+  "repeats": 20,
+  "band_split": [
+    20,
+    60,
+    20
+  ],
+  "feature_columns": [
+    "HUFL",
+    "HULL",
+    "MUFL",
+    "MULL",
+    "LUFL",
+    "LULL",
+    "OT"
+  ],
+  "target_col": "OT"
+}

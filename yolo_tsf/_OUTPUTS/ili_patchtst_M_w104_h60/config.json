@@ -1,0 +1,32 @@
+{
+  "source": "training_main",
+  "dataset": "ili",
+  "dataset_label": "National Illness",
+  "eval_protocol": "patchtst",
+  "features": "M",
+  "window": 104,
+  "horizon": 60,
+  "epochs": 100,
+  "lr": 0.0001,
+  "batch_size": 64,
+  "use_skip": true,
+  "use_revin": true,
+  "patch_len": 24,
+  "patch_stride": 2,
+  "repeats": 20,
+  "band_split": [
+    20,
+    60,
+    20
+  ],
+  "feature_columns": [
+    "% WEIGHTED ILI",
+    "%UNWEIGHTED ILI",
+    "AGE 0-4",
+    "AGE 5-24",
+    "ILITOTAL",
+    "NUM. OF PROVIDERS",
+    "OT"
+  ],
+  "target_col": "OT"
+}

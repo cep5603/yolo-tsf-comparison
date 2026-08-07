@@ -1,8 +1,8 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-# Ultralytics YOLO11 object detection model with P3/8 - P5/32 outputs
-# Model docs: https://docs.ultralytics.com/models/yolo11
-# Task docs: https://docs.ultralytics.com/tasks/detect
+# Ultralytics YOLO11 forecasting model with P3/8 - P5/32 multi-scale features
+# Time-series inputs are represented as pseudo-images with shape (B, C, 1, W)
+# Forecast head implementation: ultralytics/nn/modules/forecast.py
 
 # Parameters
 nc: 1
@@ -25,19 +25,14 @@ backbone:
   - [-1, 2, C3k2, [1024, True]]      # 8
 
 # Changes to head definition from base yaml:
-# - Upsample only width (height=1)
-# Replaced detection w/ forecast head + params
+# - Upsample only width (height stays 1 for time-series inputs)
+# - Replace the detection head with a forecast head
 
 head:
   # FPN from P5 (8) -> P4 (6) -> P3 (4)
-  # Input H=1, W=512.
-  # P5 (Stride 32): H=1, W=16.
-  # P4 (Stride 16): H=1, W=32.
-  # P3 (Stride 8):  H=1, W=64.
-  
-head:
-  # FPN from P5 (8) -> P4 (6) -> P3 (4)
-  # Input H=1, W=512.
+  # Input is (B, C, 1, W_eff), where W_eff depends on the caller and any padding.
+  # Feature-map widths follow the stride hierarchy (roughly W_eff/32, W_eff/16, W_eff/8).
+  # Exact widths depend on the effective input width and convolution padding behavior.
   # Backbone ends at 8.
   
   - [-1, 1, UpW, [2, "nearest"]]                 # 9: P5 -> P4 scale (W*2)
@@ -48,7 +43,7 @@ head:
   - [[-1, 4], 1, Concat, [1]]                     # 13: cat P3
   - [-1, 2, C3k2, [256, False]]                   # 14: P3 fused
 
-  # Forecast Head using [P3, P4, P5]
+  # Forecast head using [P3, P4, P5]
   # P3=14, P4=11, P5=8
-  # Pool to W=16 (Smallest feature map width)
+  # Pool each selected scale to fixed width 16 before concatenation and readout
   - [[14, 11, 8], 1, Forecast, [36, null, 256, 0.2, "concat", 16]]

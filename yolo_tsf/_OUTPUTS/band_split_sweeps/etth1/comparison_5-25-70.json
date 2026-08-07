@@ -1,0 +1,23 @@
+{
+  "dataset": "etth1",
+  "band_split": [
+    5,
+    25,
+    70
+  ],
+  "band_split_tag": "5-25-70",
+  "repeats": 3,
+  "eval_protocol": "patchtst",
+  "features": "M",
+  "shared_output_dir": "C:\\Starry's Stuff\\Programming\\ultralytics\\yolo_tsf\\_OUTPUTS\\etth1_patchtst_M_w336_h336_band5-25-70_baseline_models-YOLO11-Forecast-PatchTST--Supervised-v2---Backbone---Neck_shared_reference",
+  "split_output_dir": "C:\\Starry's Stuff\\Programming\\ultralytics\\yolo_tsf\\_OUTPUTS\\etth1_patchtst_M_w336_h336_band5-25-70_models-v5---Shape-Aware-Loss-v6---Temporal-Gating_split_5-25-70",
+  "shared_models": [
+    "YOLO11 Forecast",
+    "PatchTST (Supervised)",
+    "v2 - Backbone + Neck"
+  ],
+  "split_sensitive_models": [
+    "v5 - Shape-Aware Loss",
+    "v6 - Temporal Gating"
+  ]
+}

@@ -251,20 +251,9 @@ class SeparateMultiScaleForecastHead(nn.Module):
         )
 
         # Per-scale fc (NO temporal collapse)
-        self.p3_fc = nn.Sequential(
-            nn.LazyLinear(horizon),
-            nn.SiLU()
-        )
-
-        self.p4_fc = nn.Sequential(
-            nn.LazyLinear(horizon),
-            nn.SiLU()
-        )
-
-        self.p5_fc = nn.Sequential(
-            nn.LazyLinear(horizon),
-            nn.SiLU()
-        )
+        self.p3_fc = nn.LazyLinear(horizon)
+        self.p4_fc = nn.LazyLinear(horizon)
+        self.p5_fc = nn.LazyLinear(horizon)
 
     def forward(self, feats):
         p3, p4, p5 = feats
@@ -335,9 +324,27 @@ class YOLO11_TSF(nn.Module):
             horizon=horizon
         )
 
-        self.log_vars = nn.Parameter(torch.zeros(4))
+        # self.log_vars = nn.Parameter(torch.zeros(4))
 
+        self.log_sigma_p3 = nn.Parameter(torch.zeros(1))
+        self.log_sigma_p4 = nn.Parameter(torch.zeros(1))
         self.log_sigma_p5 = nn.Parameter(torch.zeros(1))
+
+    def slope_loss(self, pred, target):
+        """MSE on first-order differences (slope consistency)."""
+        if pred.shape[-1] < 2:
+            return torch.zeros((), dtype=pred.dtype, device=pred.device)
+        pred_delta = pred[..., 1:] - pred[..., :-1]
+        target_delta = target[..., 1:] - target[..., :-1]
+        return F.mse_loss(pred_delta, target_delta)
+
+    def curvature_loss(self, pred, target):
+        """MSE on second-order differences (curvature consistency)."""
+        if pred.shape[-1] < 3:
+            return torch.zeros((), dtype=pred.dtype, device=pred.device)
+        pred_curve = pred[..., 2:] - 2.0 * pred[..., 1:-1] + pred[..., :-2]
+        target_curve = target[..., 2:] - 2.0 * target[..., 1:-1] + target[..., :-2]
+        return F.mse_loss(pred_curve, target_curve)
 
     def forward(self, x, return_components=None):
         if return_components is None:
@@ -440,34 +447,29 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=0.001)
     loss_fn = nn.MSELoss()
 
-    def curvature_loss(x,y):
-        return torch.mean((x[:, 2:] - 2*y[:, 1:-1] + x[:, :-2])**2)
-
-    def slope_loss(pred, target):
-        return F.mse_loss(pred[:, 1:] - pred[:, :-1],
-                          target[:, 1:] - target[:, :-1])
-
     for epoch in range(1000):
         optimizer.zero_grad()
         pred, pred_p3, pred_p4, pred_p5 = model(X, return_components=True)
 
-        #loss = loss_fn(pred, y) + loss_fn(pred_p3, y_r) +  loss_fn(pred_p4, y_s) + slope_loss(pred_p5, y_t)
-        #loss = torch.exp(-model.log_vars[0])*loss_fn(pred, y) + torch.exp(-model.log_vars[1])*loss_fn(pred_p3, y_r) +  torch.exp(-model.log_vars[2])*loss_fn(pred_p4, y_s) + torch.exp(-model.log_vars[3])*slope_loss(pred_p5, y_t)
-        loss = loss_fn(pred, y) + loss_fn(pred_p3, y_r) +  loss_fn(pred_p4, y_s) + torch.exp(-model.log_sigma_p5)*loss_fn(pred_p5, y_t)# + model.log_sigma_p5
+        loss = (
+            loss_fn(pred, y)
+            + loss_fn(pred_p3, y_r)
+            + loss_fn(pred_p4, y_s)
+            + 0.25 * loss_fn(pred_p5, y_t)
+            + 0.25 * model.slope_loss(pred_p5, y_t)
+            + 0.10 * model.curvature_loss(pred_p5, y_t)
+        )
 
         loss.backward()
         optimizer.step()
 
         if epoch % 10 == 0:
-            loss_weight = [torch.exp(-model.log_vars[k]) for k in range(4)]
-            loss_weight = torch.exp(-model.log_sigma_p5)
-            print(f"Epoch {epoch}, Loss {loss.item():.4f} Loss Weight {loss_weight}")
+            print(f"Epoch {epoch}, Loss {loss.item():.4f}")
 
     model.eval()
     X_test = Test_data[:,:30].view(10,1,30)
     y_test = Test_data[:,30:].view(10,10)
     y_pred = model(X_test)
-
     print(f"Prediction: {y_pred}")
     print(f"GroundTruth: {y_test}")
 

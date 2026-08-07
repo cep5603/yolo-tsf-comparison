@@ -1,0 +1,41 @@
+{
+  "source": "training_main",
+  "dataset": "etth1",
+  "dataset_label": "ETTh1",
+  "eval_protocol": "patchtst",
+  "features": "M",
+  "window": 336,
+  "horizon": 336,
+  "epochs": 100,
+  "lr": 0.0001,
+  "batch_size": 64,
+  "use_skip": true,
+  "use_revin": true,
+  "patch_len": 16,
+  "patch_stride": 8,
+  "repeats": 3,
+  "band_split": [
+    5,
+    25,
+    70
+  ],
+  "band_split_tag": "5-25-70",
+  "selected_models": [
+    "YOLO11 Forecast",
+    "PatchTST (Supervised)",
+    "v2 - Backbone + Neck"
+  ],
+  "include_baseline": true,
+  "run_tag": "shared_reference",
+  "model_run_tag": "baseline_models-YOLO11-Forecast-PatchTST--Supervised-v2---Backbone---Neck_shared_reference",
+  "feature_columns": [
+    "HUFL",
+    "HULL",
+    "MUFL",
+    "MULL",
+    "LUFL",
+    "LULL",
+    "OT"
+  ],
+  "target_col": "OT"
+}

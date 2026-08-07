@@ -1,0 +1,38 @@
+{
+  "source": "training_main",
+  "dataset": "ettm2",
+  "dataset_label": "ETTm2",
+  "eval_protocol": "patchtst",
+  "features": "M",
+  "window": 336,
+  "horizon": 96,
+  "epochs": 50,
+  "lr": 0.0001,
+  "batch_size": 64,
+  "use_skip": true,
+  "use_revin": true,
+  "patch_len": 16,
+  "patch_stride": 8,
+  "repeats": 3,
+  "band_split": [
+    10,
+    80,
+    10
+  ],
+  "decomp_mode": "moving_avg",
+  "trend_kernel": 0,
+  "seasonal_kernel": 17,
+  "level_loss_weight": 0.5,
+  "target_loss_weight": 1.0,
+  "monitor_target_channel": false,
+  "feature_columns": [
+    "HUFL",
+    "HULL",
+    "MUFL",
+    "MULL",
+    "LUFL",
+    "LULL",
+    "OT"
+  ],
+  "target_col": "OT"
+}
